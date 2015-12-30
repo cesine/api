@@ -30,9 +30,18 @@
         return 'Basic ' + window.btoa(clientId + ':' + clientSecret);
       }
 
+      function handleError(){
+        $('#search-image-progress').val(0);
+        $('#search-video-progress').val(0);
+        $('#search-button').text('Retry');
+        $('#search-button').show();
+      }
+
       // Search media by type
       function search(opts, mediaType) {
         var $container = $('#' + mediaType + '-search-results');
+        var progressBar = $('#search-' + mediaType + '-progress');
+
         var createComponentFunc = mediaType === 'image'
           ? renderImageComponent
           : renderVideoComponent;
@@ -45,25 +54,57 @@
           data: opts,
           headers: {
             Authorization: authorization
+          },
+          xhr: function() {
+            var xhr = new window.XMLHttpRequest();
+            progressBar.val(progressBar.val() + 1);
+
+            //Download progress
+            xhr.addEventListener("progress", function(evt){
+              if (!evt.lengthComputable) {
+                progressBar.val(progressBar.val() + 1);
+                console.log('downloading ', evt.currentTarget.responseURL, evt.currentTarget.responseText);
+              } else {
+                var percentComplete = evt.loaded / evt.total;
+                console.log('downloading ', evt.currentTarget.responseURL, percentComplete);
+                progressBar.val(progressBar.val() + percentComplete);
+              }
+            }, false);
+            return xhr;
           }
         })
         .done(function(data) {
           if (data.total_count === 0) {
             $container.append('<p>No Results</p>');
+            handleError();
             return;
           }
+          if (!data.data && data.message) {
+            $container.append('<p>' + data.message + '</p>');
+            handleError();
+            return;
+          }
+
+          // data is fetched
+          progressBar.val(progressBar.attr('max'));
 
           var minHeightCSS = /horizontal/.test(opts) ? 'horizontal-image' : 'vertical-image';
           $.each(data.data, function(i, item) {
             var component = createComponentFunc(item, minHeightCSS);
             $container.append(component);
+            progressBar[0].setAttribute('max', parseInt(progressBar.attr('max'), 10) + 1);
           });
 
           // Reduce the options area to show the results
           if (window.innerWidth < 600) $('.collapse.in').collapse();
+
+          window.setTimeout(function(){
+            $('#search-button').show();
+          }, 2000);
         })
         .fail(function(xhr, status, err) {
-          alert('Failed to retrieve ' + mediaType + ' search results:\n' + JSON.stringify(xhr.responseJSON, null, 2));
+          console.log('Failed to retrieve ' + mediaType + ' search results:\n' + JSON.stringify(xhr.responseJSON, null, 2));
+          handleError();
         });
 
         return jqxhr;
@@ -113,6 +154,11 @@
         var description = $('<p>');
 
         $(thumbnail)
+          .on('load', function(){
+            $('#search-image-progress').val($('#search-image-progress').val() + 1);
+          });
+
+        $(thumbnail)
           .click(fetchDetails)
           .attr('id', image.id)
           .attr('src', image.assets.large_thumb.url)
@@ -138,6 +184,11 @@
         var wrapper = $('<div class="col-xs-12 col-sm-12 col-md-6 col-lg-4">');
         var preview = $('<video width="100%">');
         var description = $('<p>');
+
+        $(preview)
+          .on('loadeddata', function(){
+            $('#search-video-progress').val($('#search-video-progress').val() + 1);
+          });
 
         $(preview)
           .click(fetchDetails)
@@ -247,6 +298,12 @@
 
         $('#search-form').submit(function(e) {
           e.preventDefault();
+          $('#search-button').hide();
+          $('#search-button').text('Search');
+          $('#search-image-progress')[0].setAttribute('max', 6);
+          $('#search-image-progress').val(0);
+          $('#search-video-progress')[0].setAttribute('max', 6);
+          $('#search-video-progress').val(0);
 
           // Clear current media results
           $('#image-search-results, #video-search-results').empty();
@@ -461,7 +518,7 @@
                 </div>
               </div>
             </div>
-            <button id="submit" name="submit" type="submit" class="btn btn-primary pull-right">
+            <button id="search-button" name="submit" type="submit" class="btn btn-primary pull-right">
               Search <i class="fa fa-search"></i>
             </button>
           </fieldset>
@@ -469,12 +526,17 @@
       </div>
       <div class="col-xs-12 col-md-8 col-md-8 col-lg-9">
         <div class="col-xs-6 col-md-6 col-lg-6 image-results">
-          <p class="lead">Images</p>
+          <p class="lead">Images
+            <progress id="search-image-progress" min="0" max="8" value="0"></progress>
+          </p>
+
           <hr />
           <div id="image-search-results"></div>
         </div>
         <div class="col-xs-6 col-md-6 col-lg-6 video-results">
-          <p class="lead">Videos</p>
+          <p class="lead">Videos
+            <progress id="search-video-progress" min="0" max="8" value="0"></progress>
+          </p>
           <hr />
           <div id="video-search-results" class="col-xs-12 col-sm-12 col-md-12 col-lg-12"></div>
         </div>
